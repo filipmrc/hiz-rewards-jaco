@@ -7,8 +7,9 @@ project(hiz)
 find_package(catkin REQUIRED COMPONENTS
   roscpp
   wpi_jaco_wrapper
-  actionlib
-  rail_manipulation_msgs
+  moveit_core
+  moveit_ros_planning
+  moveit_ros_planning_interface
 )
 
 ## System dependencies are found with CMake's conventions

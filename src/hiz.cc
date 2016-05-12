@@ -1,9 +1,17 @@
-#include <ros/ros.h>
 #include <wpi_jaco_msgs/CartesianCommand.h>
 #include <wpi_jaco_msgs/GetCartesianPosition.h>
 #include <iostream>
 #include <fstream>
 #include <termios.h>
+#include <pluginlib/class_loader.h>
+#include <ros/ros.h>
+#include <actionlib/client/simple_action_client.h>
+#include <rail_manipulation_msgs/GripperAction.h>
+#include <rail_manipulation_msgs/LiftAction.h>
+#include <wpi_jaco_msgs/HomeArmAction.h>
+#include <std_srvs/Empty.h>
+#include <actionlib/client/terminal_state.h>
+
 using namespace std;
 
 char getch()
@@ -50,41 +58,50 @@ class ArmFsm
 private:
   ros::Publisher cartesian_cmd_pub;
   ros::ServiceClient client_cartesian;
+  wpi_jaco_msgs::GetCartesianPosition srv;
+  actionlib::SimpleActionClient<rail_manipulation_msgs::GripperAction> acGripper;
+  actionlib::SimpleActionClient<wpi_jaco_msgs::HomeArmAction> acHome;
+  actionlib::SimpleActionClient<rail_manipulation_msgs::LiftAction> acLift;
+
+  vector<wpi_jaco_msgs::CartesianCommand> states;
 
 public:
-  ArmFsm(ros::NodeHandle n)
+  ArmFsm(ros::NodeHandle n) : acGripper("jaco_arm/manipulation/gripper", true),
+			      acHome("jaco_arm/home_arm", true),
+			      acLift("jaco_arm/manipulation/lift", true)
   {
     client_cartesian = n.serviceClient<wpi_jaco_msgs::GetCartesianPosition>("get_cartesian_position");
     cartesian_cmd_pub = n.advertise<wpi_jaco_msgs::CartesianCommand>("jaco_arm/cartesian_cmd",1);
+    states.resize(8);
 
     ifstream fin("states.txt");
     if(!fin)
        perror ( "Stream Failed to open because: " );
 
     string name;
-    int var1;
-    int var2;
-    int var3;
+    int x, y, z, rx, ry, rz, i=0;
 
-    while (fin >> name >> var1 >> var2 >> var3)
+    while (fin >> name >> x >> y >> z >> rx >> ry >> rz)
     {
-        /* do something with name, var1 etc. */
-        cout << name << var1 << var2 << var3 << "\n";
+        cout << name << " " << x << " " << y << " " << z << " " << rx << " " << ry << " " << rz << "\n";
+        states[i].arm.linear.x = x;
+        states[i].arm.linear.y = y;
+        states[i].arm.linear.z = z;
+        states[i].arm.angular.x = rx;
+        states[i].arm.angular.y = ry;
+        states[i].arm.angular.z = rz;
+	i++;
     }
+
+    ROS_INFO("Waiting for grasp, pickup, and home arm action servers...");
+    acGripper.waitForServer();
+    acHome.waitForServer();
+    ROS_INFO("Finished waiting for action servers");
+
   }
   void resetState(wpi_jaco_msgs::CartesianCommand &cmd, int &state)
   {
-    cmd.armCommand = true;
-    cmd.fingerCommand = false;
-    cmd.repeat = false;
-    cmd.position = true;
-    cmd.arm.linear.x = 1;
-    cmd.arm.linear.y = 1;
-    cmd.arm.linear.z = 1;
-    cmd.arm.angular.x = 1;
-    cmd.arm.angular.y = 1;
-    cmd.arm.angular.z = 1;
-
+    cmd = states[0];
     state = 1;
   }
 
@@ -94,22 +111,76 @@ public:
       {
 	case 1:
 	  state++;
+	  cmd = states[1]; // Above package
 	  break;
 	case 2:
 	  state++;
+	  cmd = states[2]; // Surround package with gripper
 	  break;
 	case 3:
 	  state++;
+	  cmd = states[3]; // Grip package
 	  break;
 	case 4:
 	  state++;
+	  cmd = states[4]; // Lift package
 	  break;
+	case 5:
+	  state++;
+	  cmd = states[5]; // Bring package to other side
+	  break;
+	case 6:
+	  state++;
+	  cmd = states[6]; // Drop package
       }
   }
 
   bool checkStatus(wpi_jaco_msgs::CartesianCommand cmd)
   {
     return 1;
+  }
+
+  void get_position(geometry_msgs::Twist& position)
+  {
+        if (client_cartesian.call(srv))
+           {
+             position  = srv.response.pos;
+           }
+           else
+           {
+             ROS_ERROR("Failed to get current position!");
+             ros::shutdown();
+             throw ros::Exception("Failed to get current position!");
+           }
+  }
+
+  void executeCommand(wpi_jaco_msgs::CartesianCommand cmd)
+  {
+    cmd.position = true;
+    cmd.armCommand = true;
+    cmd.fingerCommand = false;
+    cmd.repeat = false;
+    cartesian_cmd_pub.publish(cmd);
+  }
+
+  void executeGrip()
+  {
+    rail_manipulation_msgs::GripperGoal gripperGoal;
+    gripperGoal.close = true;
+    acGripper.sendGoal(gripperGoal);
+  }
+
+  void releaseGrip()
+  {
+    rail_manipulation_msgs::GripperGoal gripperGoal;
+    gripperGoal.close = false;
+    acGripper.sendGoal(gripperGoal);
+  }
+
+  void liftLoad()
+  {
+    rail_manipulation_msgs::LiftGoal liftGoal;
+    acLift.sendGoal(liftGoal);
   }
 };
 
@@ -127,14 +198,15 @@ int main(int argc, char** argv)
   while(ros::ok())
   {
     int c = getch();
-    if ((state != 5) && (state != 0))
+    if ((state != 6) && (state != 0))
       {
 	if(ar.checkStatus(cmd))
 	{
 	  ar.forwardState(cmd, state);
 	}
+        ar.executeCommand(cmd);
       }
-    else if ((c == 'r') && (state == 5))
+    else if ((c == 'r') && (state == 6))
       {
 	if(ar.checkStatus(cmd))
 	  {
