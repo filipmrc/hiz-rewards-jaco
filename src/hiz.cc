@@ -5,6 +5,7 @@
 #include <termios.h>
 #include <pluginlib/class_loader.h>
 #include <ros/ros.h>
+#include <control_msgs/FollowJointTrajectoryAction.h>
 #include <actionlib/client/simple_action_client.h>
 #include <rail_manipulation_msgs/GripperAction.h>
 #include <rail_manipulation_msgs/LiftAction.h>
@@ -62,13 +63,15 @@ private:
   actionlib::SimpleActionClient<rail_manipulation_msgs::GripperAction> acGripper;
   actionlib::SimpleActionClient<wpi_jaco_msgs::HomeArmAction> acHome;
   actionlib::SimpleActionClient<rail_manipulation_msgs::LiftAction> acLift;
+  actionlib::SimpleActionClient<control_msgs::FollowJointTrajectoryAction> acTraj;
 
   vector<wpi_jaco_msgs::CartesianCommand> states;
 
 public:
   ArmFsm(ros::NodeHandle n) : acGripper("jaco_arm/manipulation/gripper", true),
 			      acHome("jaco_arm/home_arm", true),
-			      acLift("jaco_arm/manipulation/lift", true)
+			      acLift("jaco_arm/manipulation/lift", true),
+			      acTraj("jaco_arm/arm_controller/trajectory", true)
   {
     client_cartesian = n.serviceClient<wpi_jaco_msgs::GetCartesianPosition>("get_cartesian_position");
     cartesian_cmd_pub = n.advertise<wpi_jaco_msgs::CartesianCommand>("jaco_arm/cartesian_cmd",1);
@@ -79,17 +82,18 @@ public:
        perror ( "Stream Failed to open because: " );
 
     string name;
-    int x, y, z, rx, ry, rz, i=0;
+    int x, y, z, rx, ry, rz, lft, i=0;
 
-    while (fin >> name >> x >> y >> z >> rx >> ry >> rz)
+    while (fin >> name >> x >> y >> z >> rx >> ry >> rz >> lft)
     {
-        cout << name << " " << x << " " << y << " " << z << " " << rx << " " << ry << " " << rz << "\n";
+        cout << name << " " << x << " " << y << " " << z << " " << rx << " " << ry << " " << rz << lft <<"\n";
         states[i].arm.linear.x = x;
         states[i].arm.linear.y = y;
         states[i].arm.linear.z = z;
         states[i].arm.angular.x = rx;
         states[i].arm.angular.y = ry;
         states[i].arm.angular.z = rz;
+        states[i].fingerCommand = lft;
 	i++;
     }
 
@@ -137,10 +141,46 @@ public:
 
   bool checkStatus(wpi_jaco_msgs::CartesianCommand cmd)
   {
+    int type = cmd.fingerCommand;
+    bool finished_before_timeout;
+    switch(type)
+      {
+	case 0:
+	  cmd.position = true;
+	  cmd.armCommand = true;
+	  cmd.fingerCommand = false;
+	  cmd.repeat = false;
+	  cartesian_cmd_pub.publish(cmd);
+	  break;
+	case 1:
+	  executeGrip();
+	  finished_before_timeout = acGripper.waitForResult(ros::Duration(10.0));
+	  if(finished_before_timeout == true)
+	    ROS_INFO_STREAM("Grip successful");
+	  else
+	    ROS_INFO_STREAM("GRIP FAILED");
+	  break;
+	case 2:
+	  executeLift();
+	  finished_before_timeout = acLift.waitForResult(ros::Duration(10.0));
+	  if(finished_before_timeout == true)
+	    ROS_INFO_STREAM("Lift successful");
+	  else
+	    ROS_INFO_STREAM("LIFT FAILED");
+	  break;
+	case 3:
+	  releaseGrip();
+	  finished_before_timeout = acGripper.waitForResult(ros::Duration(10.0));
+	  if(finished_before_timeout == true)
+	    ROS_INFO_STREAM("Release successful");
+	  else
+	    ROS_INFO_STREAM("RELEASE FAILED");
+	  break;
+      }
     return 1;
   }
 
-  void get_position(geometry_msgs::Twist& position)
+  void getPosition(geometry_msgs::Twist& position)
   {
         if (client_cartesian.call(srv))
            {
@@ -156,11 +196,26 @@ public:
 
   void executeCommand(wpi_jaco_msgs::CartesianCommand cmd)
   {
-    cmd.position = true;
-    cmd.armCommand = true;
-    cmd.fingerCommand = false;
-    cmd.repeat = false;
-    cartesian_cmd_pub.publish(cmd);
+    int type = cmd.fingerCommand;
+    switch(type)
+      {
+	case 0:
+	  cmd.position = true;
+	  cmd.armCommand = true;
+	  cmd.fingerCommand = false;
+	  cmd.repeat = false;
+	  cartesian_cmd_pub.publish(cmd);
+	  break;
+	case 1:
+	  executeGrip();
+	  break;
+	case 2:
+	  executeLift();
+	  break;
+	case 3:
+	  releaseGrip();
+	  break;
+      }
   }
 
   void executeGrip()
@@ -177,7 +232,7 @@ public:
     acGripper.sendGoal(gripperGoal);
   }
 
-  void liftLoad()
+  void executeLift()
   {
     rail_manipulation_msgs::LiftGoal liftGoal;
     acLift.sendGoal(liftGoal);
@@ -200,10 +255,10 @@ int main(int argc, char** argv)
     int c = getch();
     if ((state != 6) && (state != 0))
       {
-	if(ar.checkStatus(cmd))
-	{
-	  ar.forwardState(cmd, state);
-	}
+	if(ar.checkStatus(cmd)) // Check if state transition finished
+	  {
+	    ar.forwardState(cmd, state); // Set next state
+	  }
         ar.executeCommand(cmd);
       }
     else if ((c == 'r') && (state == 6))
