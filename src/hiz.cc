@@ -13,6 +13,8 @@
 #include <std_srvs/Empty.h>
 #include <actionlib/client/terminal_state.h>
 
+#define THRESHOLD 0.005
+
 using namespace std;
 
 char getch()
@@ -143,39 +145,52 @@ public:
   {
     int type = cmd.fingerCommand;
     bool finished_before_timeout;
+    geometry_msgs::Twist current, goal = cmd.arm;
     switch(type)
       {
 	case 0:
-	  cmd.position = true;
-	  cmd.armCommand = true;
-	  cmd.fingerCommand = false;
-	  cmd.repeat = false;
-	  cartesian_cmd_pub.publish(cmd);
-	  break;
+	  getPosition(current);
+	  if((abs(goal.linear.x - current.linear.x) < THRESHOLD) && (abs(goal.linear.y - current.linear.y) < THRESHOLD)
+	      && (abs(goal.linear.z - current.linear.z) < THRESHOLD) && (abs(goal.angular.x - current.angular.x) < THRESHOLD)
+	      && (abs(goal.angular.y - current.angular.y) < THRESHOLD) && (abs(goal.angular.z - current.angular.z) < THRESHOLD))
+	    {
+	      ROS_INFO_STREAM("STATE TRANSITION SUCCESSFUL");
+	      return true;
+	    }
+	  else
+	    {
+	      return false;
+	    }
 	case 1:
-	  executeGrip();
 	  finished_before_timeout = acGripper.waitForResult(ros::Duration(10.0));
 	  if(finished_before_timeout == true)
-	    ROS_INFO_STREAM("Grip successful");
+	    {
+	      ROS_INFO_STREAM("Grip successful");
+	      return true;
+	    }
 	  else
-	    ROS_INFO_STREAM("GRIP FAILED");
-	  break;
+	    {
+	      ROS_INFO_STREAM("GRIP FAILED");
+	      return false;
+	    }
 	case 2:
-	  executeLift();
 	  finished_before_timeout = acLift.waitForResult(ros::Duration(10.0));
 	  if(finished_before_timeout == true)
-	    ROS_INFO_STREAM("Lift successful");
+	    {
+	      ROS_INFO_STREAM("Lift successful");
+	      return true;
+	    }
 	  else
-	    ROS_INFO_STREAM("LIFT FAILED");
-	  break;
+	    {
+	      ROS_INFO_STREAM("LIFT FAILED");
+	      return false;
+	    }
 	case 3:
-	  releaseGrip();
 	  finished_before_timeout = acGripper.waitForResult(ros::Duration(10.0));
 	  if(finished_before_timeout == true)
 	    ROS_INFO_STREAM("Release successful");
 	  else
 	    ROS_INFO_STREAM("RELEASE FAILED");
-	  break;
       }
     return 1;
   }
