@@ -15,6 +15,7 @@
 
 using namespace std;
 
+// TODO more robust key input method
 char getch()
 {
   fd_set set;
@@ -95,10 +96,10 @@ public:
 	i++;
       }
 
-    //ROS_INFO("Waiting for grasp, pickup, and home arm action servers...");
-    //acGripper.waitForServer();
-    //acLift.waitForServer();
-    //ROS_INFO("Finished waiting for action servers");
+    ROS_INFO("Waiting for grasp, pickup, and home arm action servers...");
+    acGripper.waitForServer();
+    acLift.waitForServer();
+    ROS_INFO("Finished waiting for action servers");
 
 }
   void resetState(wpi_jaco_msgs::CartesianCommand &cmd, int &state)
@@ -143,7 +144,7 @@ public:
     bool finished_before_timeout;
     geometry_msgs::Twist current, goal = cmd.arm;
 
-    return true;
+    //return true; TESTING
     switch(type)
     {
       case 0:
@@ -267,15 +268,12 @@ int main(int argc, char** argv)
   wpi_jaco_msgs::CartesianCommand cmd;
   ArmFsm ar(n);
 
-  bool in_cycle, release_and_input, start, idle_and_input;
   int state = 0;
   ROS_INFO_STREAM(state);
 
   while(ros::ok())
     {
       int c = getch();
-      in_cycle
-
       if ((state < 7) && (state > 1)) // If in cycle
 	{
 	  if(ar.checkStatus(cmd,state)) // Check if state transition finished
@@ -284,7 +282,7 @@ int main(int argc, char** argv)
 		{
 		  ar.forwardState(cmd, state); // Set next state
 		}
-	      else if((state != 3) && (state != 4))
+	      else if((state != 3) && (state != 4) && (state != 6))
 		{
 		  ar.forwardState(cmd, state); // Set next state
 		}
