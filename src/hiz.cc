@@ -3,13 +3,11 @@
 #include <iostream>
 #include <fstream>
 #include <termios.h>
-#include <pluginlib/class_loader.h>
 #include <ros/ros.h>
 #include <control_msgs/FollowJointTrajectoryAction.h>
 #include <actionlib/client/simple_action_client.h>
 #include <rail_manipulation_msgs/GripperAction.h>
 #include <rail_manipulation_msgs/LiftAction.h>
-#include <wpi_jaco_msgs/HomeArmAction.h>
 #include <std_srvs/Empty.h>
 #include <actionlib/client/terminal_state.h>
 
@@ -97,10 +95,10 @@ public:
 	i++;
       }
 
-    ROS_INFO("Waiting for grasp, pickup, and home arm action servers...");
-    acGripper.waitForServer();
-    acLift.waitForServer();
-    ROS_INFO("Finished waiting for action servers");
+    //ROS_INFO("Waiting for grasp, pickup, and home arm action servers...");
+    //acGripper.waitForServer();
+    //acLift.waitForServer();
+    //ROS_INFO("Finished waiting for action servers");
 
 }
   void resetState(wpi_jaco_msgs::CartesianCommand &cmd, int &state)
@@ -113,27 +111,27 @@ public:
   {
     switch(state)
     {
-      case 2:
+      case 1:
 	state++;
 	cmd = states[1]; // Above package
 	break;
-      case 3:
+      case 2:
 	state++;
 	cmd = states[2]; // Surround package with gripper
 	break;
-      case 4:
+      case 3:
 	state++;
 	cmd = states[3]; // Grip package
 	break;
-      case 5:
+      case 4:
 	state++;
 	cmd = states[4]; // Lift package
 	break;
-      case 6:
+      case 5:
 	state++;
 	cmd = states[5]; // Bring package to other side
 	break;
-      case 7:
+      case 6:
 	state++;
 	cmd = states[6]; // Drop package
     }
@@ -144,6 +142,8 @@ public:
     int type = cmd.fingerCommand;
     bool finished_before_timeout;
     geometry_msgs::Twist current, goal = cmd.arm;
+
+    return true;
     switch(type)
     {
       case 0:
@@ -262,22 +262,32 @@ int main(int argc, char** argv)
 {
   ros::init(argc, argv, "jaco_fsm");
   ros::NodeHandle n;
-  ros::Rate r(1);
+  ros::Rate r(2);
 
   wpi_jaco_msgs::CartesianCommand cmd;
   ArmFsm ar(n);
 
+  bool in_cycle, release_and_input, start, idle_and_input;
   int state = 0;
   ROS_INFO_STREAM(state);
 
   while(ros::ok())
     {
       int c = getch();
+      in_cycle
+
       if ((state < 7) && (state > 1)) // If in cycle
 	{
 	  if(ar.checkStatus(cmd,state)) // Check if state transition finished
 	    {
-	      ar.forwardState(cmd, state); // Set next state TO DO
+	      if((state == 3 || state == 4 || state == 6) && (c == 'r')) // If grip, lift or release
+		{
+		  ar.forwardState(cmd, state); // Set next state
+		}
+	      else if((state != 3) && (state != 4))
+		{
+		  ar.forwardState(cmd, state); // Set next state
+		}
 	      ROS_INFO_STREAM(state);
 	    }
 	  ar.executeCommand(cmd); // Send old or new command
@@ -293,12 +303,15 @@ int main(int argc, char** argv)
       else if ((c == 'r') && (state == 0)) // Check if started and input
 	{
 	  ar.resetState(cmd, state); // Set to idle
+	  //ROS_INFO("setting to idle");
+	  ROS_INFO_STREAM(state);
 	}
       else if ((c == 'r') && (state == 1)) // Check if idle and input
 	{
 	  if(ar.checkStatus(cmd,state)) // Check if idle
 	    {
 	      ar.forwardState(cmd, state); // Start cycle
+	      //ROS_INFO("starting cycle");
 	      ROS_INFO_STREAM(state);
 	    }
 	}
