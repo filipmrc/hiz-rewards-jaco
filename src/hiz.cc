@@ -36,7 +36,7 @@ char getch()
   if (tcgetattr(filedesc, &old) < 0)
     ROS_ERROR("tcsetattr()");
   old.c_lflag &= ~ICANON;
-  old.c_lflag &= ~ECHO;
+  //old.c_lflag &= ~ECHO;
   old.c_cc[VMIN] = 1;
   old.c_cc[VTIME] = 0;
   if (tcsetattr(filedesc, TCSANOW, &old) < 0)
@@ -96,10 +96,10 @@ public:
 	i++;
       }
 
-    ROS_INFO("Waiting for grasp, pickup, and home arm action servers...");
-    acGripper.waitForServer();
-    acLift.waitForServer();
-    ROS_INFO("Finished waiting for action servers");
+//    ROS_INFO("Waiting for grasp, pickup, and home arm action servers...");
+//    acGripper.waitForServer();
+//    acLift.waitForServer();
+//    ROS_INFO("Finished waiting for action servers");
 
 }
   void resetState(wpi_jaco_msgs::CartesianCommand &cmd, int &state)
@@ -144,7 +144,7 @@ public:
     bool finished_before_timeout;
     geometry_msgs::Twist current, goal = cmd.arm;
 
-    //return true; TESTING
+    return true; // TESTING
     switch(type)
     {
       case 0:
