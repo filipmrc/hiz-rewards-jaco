@@ -11,7 +11,8 @@
 #include <std_srvs/Empty.h>
 #include <actionlib/client/terminal_state.h>
 
-#define THRESHOLD 0.005
+#define THRESHOLD 0.03
+#define THRESHOLD_R 0.15
 
 using namespace std;
 
@@ -72,16 +73,17 @@ public:
   acLift("jaco_arm/manipulation/lift", true),
   acTraj("jaco_arm/arm_controller/trajectory", true)
 {
-    client_cartesian = n.serviceClient<wpi_jaco_msgs::GetCartesianPosition>("get_cartesian_position");
+    client_cartesian = n.serviceClient<wpi_jaco_msgs::GetCartesianPosition>("jaco_arm/get_cartesian_position");
     cartesian_cmd_pub = n.advertise<wpi_jaco_msgs::CartesianCommand>("jaco_arm/cartesian_cmd",1);
     states.resize(8);
 
-    ifstream fin("states.txt");
+    ifstream fin("/home/projekt/catkin_ws/src/hiz/src/states.txt");
     if(!fin)
       perror ( "Stream Failed to open because: " );
 
     string name;
-    int x, y, z, rx, ry, rz, lft, i=0;
+    int lft, i=0;
+    double x, y, z, rx, ry, rz;
 
     while (fin >> name >> x >> y >> z >> rx >> ry >> rz >> lft)
       {
@@ -93,13 +95,14 @@ public:
 	states[i].arm.angular.y = ry;
 	states[i].arm.angular.z = rz;
 	states[i].fingerCommand = lft;
+	ROS_INFO_STREAM(states[i]);
 	i++;
       }
 
-//    ROS_INFO("Waiting for grasp, pickup, and home arm action servers...");
-//    acGripper.waitForServer();
-//    acLift.waitForServer();
-//    ROS_INFO("Finished waiting for action servers");
+    ROS_INFO("Waiting for grasp, pickup, and home arm action servers...");
+    acGripper.waitForServer();
+    acLift.waitForServer();
+    ROS_INFO("Finished waiting for action servers");
 
 }
   void resetState(wpi_jaco_msgs::CartesianCommand &cmd, int &state)
@@ -114,6 +117,7 @@ public:
     {
       case 1:
 	state++;
+	ROS_INFO_STREAM(state);
 	cmd = states[1]; // Above package
 	break;
       case 2:
@@ -143,15 +147,18 @@ public:
     int type = cmd.fingerCommand;
     bool finished_before_timeout;
     geometry_msgs::Twist current, goal = cmd.arm;
-
-    return true; // TESTING
+    getPosition(current);
+    ROS_INFO_STREAM(cmd);
+    ROS_INFO_STREAM(current);
+    //ROS_INFO("%f", abs(goal.linear.x - current.linear.x));
+    //return true; // TESTING
     switch(type)
     {
       case 0:
 	getPosition(current);
 	if((abs(goal.linear.x - current.linear.x) < THRESHOLD) && (abs(goal.linear.y - current.linear.y) < THRESHOLD)
-	    && (abs(goal.linear.z - current.linear.z) < THRESHOLD) && (abs(goal.angular.x - current.angular.x) < THRESHOLD)
-	    && (abs(goal.angular.y - current.angular.y) < THRESHOLD) && (abs(goal.angular.z - current.angular.z) < THRESHOLD))
+	    && (abs(goal.linear.z - current.linear.z) < THRESHOLD) && (abs(goal.angular.x - current.angular.x) < THRESHOLD_R)
+	    && (abs(goal.angular.y - current.angular.y) < THRESHOLD_R) && (abs(goal.angular.z - current.angular.z) < THRESHOLD_R))
 	  {
 	    ROS_INFO("REACHED STATE %d", state);
 	    return true;
@@ -224,6 +231,7 @@ public:
 	cmd.armCommand = true;
 	cmd.fingerCommand = false;
 	cmd.repeat = false;
+	//ROS_INFO_STREAM(cmd);
 	cartesian_cmd_pub.publish(cmd);
 	break;
       case 1:
@@ -278,17 +286,16 @@ int main(int argc, char** argv)
 	{
 	  if(ar.checkStatus(cmd,state)) // Check if state transition finished
 	    {
-	      if((state == 3 || state == 4 || state == 6) && (c == 'r')) // If grip, lift or release
+	      if((state == 2 || state == 3 || state == 6) && (c == 'r')) // If grip, lift or release
 		{
 		  ar.forwardState(cmd, state); // Set next state
 		}
-	      else if((state != 3) && (state != 4) && (state != 6))
+	      else if((state != 2) && (state != 3) && (state != 6))
 		{
 		  ar.forwardState(cmd, state); // Set next state
 		}
 	      ROS_INFO_STREAM(state);
 	    }
-	  ar.executeCommand(cmd); // Send old or new command
 	}
       else if ((c == 'r') && (state == 7)) // If releasing package and user input
 	{
@@ -312,6 +319,11 @@ int main(int argc, char** argv)
 	      //ROS_INFO("starting cycle");
 	      ROS_INFO_STREAM(state);
 	    }
+	}
+
+      if ((state != 0))
+	{
+          ar.executeCommand(cmd); // Send old or new command
 	}
       ros::spinOnce();
       r.sleep();
