@@ -67,17 +67,18 @@ private:
   actionlib::SimpleActionClient<control_msgs::FollowJointTrajectoryAction> acTraj;
 
   vector<wpi_jaco_msgs::CartesianCommand> states;
-
+  vector<string> names;
 public:
+  int states_num;
+
   ArmFsm(ros::NodeHandle n) : acGripper("jaco_arm/manipulation/gripper", true),
   acLift("jaco_arm/manipulation/lift", true),
   acTraj("jaco_arm/arm_controller/trajectory", true)
 {
     client_cartesian = n.serviceClient<wpi_jaco_msgs::GetCartesianPosition>("jaco_arm/get_cartesian_position");
     cartesian_cmd_pub = n.advertise<wpi_jaco_msgs::CartesianCommand>("jaco_arm/cartesian_cmd",1);
-    states.resize(8);
 
-    ifstream fin("/home/projekt/catkin_ws/src/hiz/src/states.txt");
+    ifstream fin("/home/marki/catkin_ws/src/hiz/src/states.txt");
     if(!fin)
       perror ( "Stream Failed to open because: " );
 
@@ -88,58 +89,44 @@ public:
     while (fin >> name >> x >> y >> z >> rx >> ry >> rz >> lft)
       {
 	cout << name << " " << x << " " << y << " " << z << " " << rx << " " << ry << " " << rz << lft <<"\n";
-	states[i].arm.linear.x = x;
-	states[i].arm.linear.y = y;
-	states[i].arm.linear.z = z;
-	states[i].arm.angular.x = rx;
-	states[i].arm.angular.y = ry;
-	states[i].arm.angular.z = rz;
-	states[i].fingerCommand = lft;
-	ROS_INFO_STREAM(states[i]);
+	names.push_back(name);
+
+	wpi_jaco_msgs::CartesianCommand command;
+	command.arm.linear.x = x;
+	command.arm.linear.y = y;
+	command.arm.linear.z = z;
+	command.arm.angular.x = rx;
+	command.arm.angular.y = ry;
+	command.arm.angular.z = rz;
+	command.fingerCommand = lft;
+	states.push_back(command);
 	i++;
       }
 
-    ROS_INFO("Waiting for grasp, pickup, and home arm action servers...");
+    states_num = states.size();
+
+/*    ROS_INFO("Waiting for grasp, pickup, and home arm action servers...");
     acGripper.waitForServer();
     acLift.waitForServer();
-    ROS_INFO("Finished waiting for action servers");
+    ROS_INFO("Finished waiting for action servers");*/
 
 }
   void resetState(wpi_jaco_msgs::CartesianCommand &cmd, int &state)
   {
     cmd = states[0]; // Idle
     state = 1;
+    stringstream ss;
+    ss << "to " << names[state-1];
+    ROS_INFO_STREAM(ss.str());
   }
 
   void forwardState(wpi_jaco_msgs::CartesianCommand &cmd, int &state)
   {
-    switch(state)
-    {
-      case 1:
-	state++;
-	ROS_INFO_STREAM(state);
-	cmd = states[1]; // Above package
-	break;
-      case 2:
-	state++;
-	cmd = states[2]; // Surround package with gripper
-	break;
-      case 3:
-	state++;
-	cmd = states[3]; // Grip package
-	break;
-      case 4:
-	state++;
-	cmd = states[4]; // Lift package
-	break;
-      case 5:
-	state++;
-	cmd = states[5]; // Bring package to other side
-	break;
-      case 6:
-	state++;
-	cmd = states[6]; // Drop package
-    }
+    state++;
+    cmd = states[state-1]; // Above package
+    stringstream ss;
+    ss << "to " << names[state-1];
+    ROS_INFO_STREAM(ss.str());
   }
 
   bool checkStatus(wpi_jaco_msgs::CartesianCommand cmd, int state)
@@ -148,19 +135,16 @@ public:
     bool finished_before_timeout;
     geometry_msgs::Twist current, goal = cmd.arm;
     getPosition(current);
-    ROS_INFO_STREAM(cmd);
-    ROS_INFO_STREAM(current);
-    //ROS_INFO("%f", abs(goal.linear.x - current.linear.x));
-    //return true; // TESTING
+    stringstream ss;
+    ss << "REACHED STATE" << names[state-1];
     switch(type)
     {
       case 0:
-	getPosition(current);
 	if((abs(goal.linear.x - current.linear.x) < THRESHOLD) && (abs(goal.linear.y - current.linear.y) < THRESHOLD)
 	    && (abs(goal.linear.z - current.linear.z) < THRESHOLD) && (abs(goal.angular.x - current.angular.x) < THRESHOLD_R)
 	    && (abs(goal.angular.y - current.angular.y) < THRESHOLD_R) && (abs(goal.angular.z - current.angular.z) < THRESHOLD_R))
 	  {
-	    ROS_INFO("REACHED STATE %d", state);
+	    ROS_INFO_STREAM(ss.str());
 	    return true;
 	  }
 	else
@@ -176,7 +160,7 @@ public:
 	  }
 	else
 	  {
-	    ROS_INFO_STREAM("GRIP FAILED");
+	    ROS_ERROR_STREAM("GRIP FAILED");
 	    return false;
 	  }
       case 2:
@@ -188,7 +172,7 @@ public:
 	  }
 	else
 	  {
-	    ROS_INFO_STREAM("LIFT FAILED");
+	    ROS_ERROR_STREAM("LIFT FAILED");
 	    return false;
 	  }
       case 3:
@@ -200,7 +184,7 @@ public:
 	  }
 	else
 	  {
-	    ROS_INFO_STREAM("RELEASE FAILED");
+	    ROS_ERROR_STREAM("RELEASE FAILED");
 	    return false;
 	  }
     }
@@ -271,7 +255,7 @@ int main(int argc, char** argv)
 {
   ros::init(argc, argv, "jaco_fsm");
   ros::NodeHandle n;
-  ros::Rate r(2);
+  ros::Rate r(1);
 
   wpi_jaco_msgs::CartesianCommand cmd;
   ArmFsm ar(n);
@@ -282,47 +266,18 @@ int main(int argc, char** argv)
   while(ros::ok())
     {
       int c = getch();
-      if ((state < 7) && (state > 1)) // If in cycle
+      if ((state < ar.states_num) && (state > 0) && (c == 'r')) // If in cycle
 	{
-	  if(ar.checkStatus(cmd,state)) // Check if state transition finished
-	    {
-	      if((state == 2 || state == 3 || state == 6) && (c == 'r')) // If grip, lift or release
-		{
-		  ar.forwardState(cmd, state); // Set next state
-		}
-	      else if((state != 2) && (state != 3) && (state != 6))
-		{
-		  ar.forwardState(cmd, state); // Set next state
-		}
-	      ROS_INFO_STREAM(state);
-	    }
+	  ar.forwardState(cmd, state); // Set next state
 	}
-      else if ((c == 'r') && (state == 7)) // If releasing package and user input
+      else if (((state == ar.states_num) || (state == 0)) && (c == 'r')) // If releasing package and user input
 	{
-	  if(ar.checkStatus(cmd,state)) // Check if package released
-	    {
-	      ar.resetState(cmd, state); // Back to idle
-	      ROS_INFO_STREAM(state);
-	    }
-	}
-      else if ((c == 'r') && (state == 0)) // Check if started and input
-	{
-	  ar.resetState(cmd, state); // Set to idle
-	  //ROS_INFO("setting to idle");
-	  ROS_INFO_STREAM(state);
-	}
-      else if ((c == 'r') && (state == 1)) // Check if idle and input
-	{
-	  if(ar.checkStatus(cmd,state)) // Check if idle
-	    {
-	      ar.forwardState(cmd, state); // Start cycle
-	      //ROS_INFO("starting cycle");
-	      ROS_INFO_STREAM(state);
-	    }
+	  ar.resetState(cmd, state); // Back to idle
 	}
 
       if ((state != 0))
 	{
+	  //ar.checkStatus(cmd, state);
           ar.executeCommand(cmd); // Send old or new command
 	}
       ros::spinOnce();
