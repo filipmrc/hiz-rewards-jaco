@@ -65,7 +65,6 @@ private:
   actionlib::SimpleActionClient<rail_manipulation_msgs::GripperAction> acGripper;
   actionlib::SimpleActionClient<rail_manipulation_msgs::LiftAction> acLift;
   actionlib::SimpleActionClient<control_msgs::FollowJointTrajectoryAction> acTraj;
-  actionlib::SimpleActionClient<wpi_jaco_msgs::HomeArmAction> acHome;
 
   vector<wpi_jaco_msgs::CartesianCommand> states;
   vector<string> names;
@@ -74,8 +73,7 @@ public:
 
   ArmFsm(ros::NodeHandle n) : acGripper("jaco_arm/manipulation/gripper", true),
   acLift("jaco_arm/manipulation/lift", true),
-  acTraj("jaco_arm/arm_controller/trajectory", true),
-  acHome("jaco_arm/home_arm",true)
+  acTraj("jaco_arm/arm_controller/trajectory", true)
 {
     client_cartesian = n.serviceClient<wpi_jaco_msgs::GetCartesianPosition>("jaco_arm/get_cartesian_position");
     cartesian_cmd_pub = n.advertise<wpi_jaco_msgs::CartesianCommand>("jaco_arm/cartesian_cmd",1);
@@ -259,7 +257,7 @@ int main(int argc, char** argv)
   ros::NodeHandle n;
   ros::Rate r(5);
 
-  wpi_jaco_msgs::CartesianCommand cmd;
+  wpi_jaco_msgs::CartesianCommand cmd, cmd_open;
   ArmFsm ar(n);
 
   int state = 0;
@@ -277,6 +275,11 @@ int main(int argc, char** argv)
 	{
 	  ar.resetState(cmd, state); // Back to idle
           ar.executeCommand(cmd); // Send old or new command
+	}
+      else if (c == 'o')
+	{
+	  cmd_open.fingerCommand = 3;
+	  ar.executeCommand(cmd_open);
 	}
       ros::spinOnce();
       r.sleep();
