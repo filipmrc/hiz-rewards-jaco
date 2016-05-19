@@ -300,6 +300,7 @@ int main(int argc, char** argv)
 	{
 	  cmd_open.fingerCommand = 4;
 	  ar.executeCommand(cmd_open);
+	  state = 0;
 	}
       ros::spinOnce();
       r.sleep();
