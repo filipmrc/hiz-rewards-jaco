@@ -78,7 +78,7 @@ public:
     client_cartesian = n.serviceClient<wpi_jaco_msgs::GetCartesianPosition>("jaco_arm/get_cartesian_position");
     cartesian_cmd_pub = n.advertise<wpi_jaco_msgs::CartesianCommand>("jaco_arm/cartesian_cmd",1);
 
-    ifstream fin("/home/marki/catkin_ws/src/hiz/src/states.txt");
+    ifstream fin("/home/projekt/catkin_ws/src/hiz/src/states2.txt");
     if(!fin)
       perror ( "Stream Failed to open because: " );
 
@@ -105,10 +105,10 @@ public:
 
     states_num = states.size();
 
-/*    ROS_INFO("Waiting for grasp, pickup, and home arm action servers...");
+    ROS_INFO("Waiting for grasp, pickup, and home arm action servers...");
     acGripper.waitForServer();
     acLift.waitForServer();
-    ROS_INFO("Finished waiting for action servers");*/
+    ROS_INFO("Finished waiting for action servers");
 
 }
   void resetState(wpi_jaco_msgs::CartesianCommand &cmd, int &state)
@@ -255,7 +255,7 @@ int main(int argc, char** argv)
 {
   ros::init(argc, argv, "jaco_fsm");
   ros::NodeHandle n;
-  ros::Rate r(1);
+  ros::Rate r(5);
 
   wpi_jaco_msgs::CartesianCommand cmd;
   ArmFsm ar(n);
